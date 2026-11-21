@@ -4,163 +4,65 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM alpine:3.24
+FROM debian:trixie-slim
 
-RUN apk add --no-cache \
+RUN set -eux; \
+	apt-get install --update -y --no-install-recommends \
 		ca-certificates \
 # DOCKER_HOST=ssh://... -- https://github.com/docker/cli/pull/1014
 		openssh-client \
 # https://github.com/docker-library/docker/issues/482#issuecomment-2197116408
-		git
-
-# ensure that nsswitch.conf is set up for Go's "netgo" implementation (which Docker explicitly uses)
-# - https://github.com/moby/moby/blob/v24.0.6/hack/make.sh#L111
-# - https://github.com/golang/go/blob/go1.19.13/src/net/conf.go#L227-L303
-# - docker run --rm debian:stretch grep '^hosts:' /etc/nsswitch.conf
-RUN [ -e /etc/nsswitch.conf ] && grep '^hosts: files dns' /etc/nsswitch.conf
-
-# pre-add a "docker" group for socket usage
-RUN set -eux; \
-	addgroup -g 2375 -S docker
+# TODO "git" is intentionally omitted (for now) because on Debian it balloons the image size considerably, mostly thanks to a Perl dependency -- https://github.com/docker-library/docker/issues/306#issuecomment-2946402034
+	; \
+	\
+# https://docs.docker.com/engine/install/debian/
+	savedAptMark="$(apt-mark showmanual)"; \
+	apt-get install -y --no-install-recommends gnupg; \
+	\
+	GNUPGHOME="$(mktemp -d)"; export GNUPGHOME; \
+	mkdir -p /usr/local/share/keyrings/; \
+	gpg --batch --keyserver keyserver.ubuntu.com --recv-keys 9DC858229FC7DD38854AE2D88D81803C0EBFCD88; \
+	gpg --batch --export --armor 9DC858229FC7DD38854AE2D88D81803C0EBFCD88 > /usr/local/share/keyrings/docker.asc; \
+	gpgconf --kill all; \
+	rm -rf "$GNUPGHOME"; \
+	\
+	{ \
+		echo 'Types: deb'; \
+		echo 'URIs: https://download.docker.com/linux/debian'; \
+		echo 'Suites: trixie'; \
+		echo 'Components: stable'; \
+		echo 'Signed-By: /usr/local/share/keyrings/docker.asc'; \
+	} > /etc/apt/sources.list.d/docker.sources; \
+	\
+	apt-mark auto '.*' > /dev/null; \
+	apt-mark manual $savedAptMark > /dev/null; \
+	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+	apt-get dist-clean; \
+	\
+# pre-add a "docker" group for socket usage (the "docker-ce" package would create this too, but this allows us to control the GID that gets selected)
+	groupadd --gid 2375 --system docker
 
 ENV DOCKER_VERSION 29.10.0
-
 RUN set -eux; \
-	\
-	apkArch="$(apk --print-arch)"; \
-	case "$apkArch" in \
-		'x86_64') \
-			url='https://download.docker.com/linux/static/stable/x86_64/docker-29.10.0.tgz'; \
-			sha256='7c1ebadc65c716cdc6d35fc78759ed0e4317debf43c21dd12f066f2006999def'; \
-			;; \
-		'armhf') \
-			url='https://download.docker.com/linux/static/stable/armel/docker-29.10.0.tgz'; \
-			sha256='b3e626f7560728eb601687da86c27edf9b7dd71f6a0f00737baeeb607c0f1d68'; \
-			;; \
-		'armv7') \
-			url='https://download.docker.com/linux/static/stable/armhf/docker-29.10.0.tgz'; \
-			sha256='08757af1f923c25d170211a1de8acc4e69e9cfbe7b5af63dd787afe2057efd5f'; \
-			;; \
-		'aarch64') \
-			url='https://download.docker.com/linux/static/stable/aarch64/docker-29.10.0.tgz'; \
-			sha256='6e5159e8b5615e0c0c2954a2a1a2a12bc65f5d9b603595dba24a10cb367408cd'; \
-			;; \
-		'ppc64le') \
-			url='https://download.docker.com/linux/static/stable/ppc64le/docker-29.10.0.tgz'; \
-			sha256='f07fe44072d1614de38effa6492f840653dfbf9e5a7d3a0a1dab4c2dad257190'; \
-			;; \
-		's390x') \
-			url='https://download.docker.com/linux/static/stable/s390x/docker-29.10.0.tgz'; \
-			sha256='09c4a2ec475121fe9c1485c65e9f54f1fa20aa4d68d0c4b271005db3943a763b'; \
-			;; \
-		*) echo >&2 "error: unsupported 'docker.tgz' architecture ($apkArch)"; exit 1 ;; \
-	esac; \
-	\
-	wget -O 'docker.tgz' "$url"; \
-	echo "$sha256 *"'docker.tgz' | sha256sum -c -; \
-	\
-	tar --extract \
-		--file docker.tgz \
-		--strip-components 1 \
-		--directory /usr/local/bin/ \
-		--no-same-owner \
-		'docker/docker' \
-	; \
-	rm docker.tgz; \
+	apt-get install --update -y --no-install-recommends 'docker-ce-cli=5:29.10.0-1~debian.13~trixie'; \
+	apt-get dist-clean; \
 	\
 	docker --version
 
 ENV DOCKER_BUILDX_VERSION 0.39.1
 RUN set -eux; \
-	\
-	apkArch="$(apk --print-arch)"; \
-	case "$apkArch" in \
-		'x86_64') \
-			url='https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-amd64'; \
-			sha256='903090816da68f8bc1a2ff5346dd163a5adacfce4548d003c75df42cd47a9bf4'; \
-			;; \
-		'armhf') \
-			url='https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-arm-v6'; \
-			sha256='3675402568ec1a5b96792d6bde9ebdafb9d29e9681b7ff747e97d54c2198a735'; \
-			;; \
-		'armv7') \
-			url='https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-arm-v7'; \
-			sha256='e6c51234507ef11ea661a8f714412a5eb9abeba586da73dca82ad89410f03b13'; \
-			;; \
-		'aarch64') \
-			url='https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-arm64'; \
-			sha256='05c88e0f9152825e609a1cdb391faf14d5f94d23d071eaecb87bae69d98da8b8'; \
-			;; \
-		'ppc64le') \
-			url='https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-ppc64le'; \
-			sha256='69713727c669ca87660c2197a5b97389cbad189120ee405f801986e8459ef83b'; \
-			;; \
-		'riscv64') \
-			url='https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-riscv64'; \
-			sha256='b0af9b8cf5e8e244ea4049b4ca897c77a0b8b0d78c1b1cd7b8324d451de71ed8'; \
-			;; \
-		's390x') \
-			url='https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-s390x'; \
-			sha256='f611aa33cd5290ad1e2ca6d5357a06123541643698d729392d05a20d527e526e'; \
-			;; \
-		*) echo >&2 "warning: unsupported 'docker-buildx' architecture ($apkArch); skipping"; exit 0 ;; \
-	esac; \
-	\
-	wget -O 'docker-buildx' "$url"; \
-	echo "$sha256 *"'docker-buildx' | sha256sum -c -; \
-	\
-	plugin='/usr/local/libexec/docker/cli-plugins/docker-buildx'; \
-	mkdir -p "$(dirname "$plugin")"; \
-	mv -vT 'docker-buildx' "$plugin"; \
-	chmod +x "$plugin"; \
+	apt-get install --update -y --no-install-recommends 'docker-buildx-plugin=0.39.1-1~debian.13~trixie'; \
+	apt-get dist-clean; \
 	\
 	docker buildx version
 
 ENV DOCKER_COMPOSE_VERSION 5.8.0
 RUN set -eux; \
+	apt-get install --update -y --no-install-recommends 'docker-compose-plugin=5.8.0-1~debian.13~trixie'; \
+	apt-get dist-clean; \
 	\
-	apkArch="$(apk --print-arch)"; \
-	case "$apkArch" in \
-		'x86_64') \
-			url='https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-x86_64'; \
-			sha256='b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6'; \
-			;; \
-		'armhf') \
-			url='https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-armv6'; \
-			sha256='c88658466ae9a4dadae64e6a4ec125202212bd460934537bd482bcd5e313f57b'; \
-			;; \
-		'armv7') \
-			url='https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-armv7'; \
-			sha256='a7a79755648b975b66df08b4bfbe12b29f113d5dd8c7cd5b6b53b69efff2f422'; \
-			;; \
-		'aarch64') \
-			url='https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-aarch64'; \
-			sha256='1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3'; \
-			;; \
-		'ppc64le') \
-			url='https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-ppc64le'; \
-			sha256='921437ba1fe9b5f7e3146c74c4d6c56673881741561c71bc23106b1e45886b1d'; \
-			;; \
-		'riscv64') \
-			url='https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-riscv64'; \
-			sha256='0af052a262dcf3a28214c7c86442046fc5e50b698e838d1904395d7a5333b142'; \
-			;; \
-		's390x') \
-			url='https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-s390x'; \
-			sha256='444af1a82eb51edd4a2aa5b1a209724f2acd19644e488fbd8c1dc8fd7d477f97'; \
-			;; \
-		*) echo >&2 "warning: unsupported 'docker-compose' architecture ($apkArch); skipping"; exit 0 ;; \
-	esac; \
-	\
-	wget -O 'docker-compose' "$url"; \
-	echo "$sha256 *"'docker-compose' | sha256sum -c -; \
-	\
-	plugin='/usr/local/libexec/docker/cli-plugins/docker-compose'; \
-	mkdir -p "$(dirname "$plugin")"; \
-	mv -vT 'docker-compose' "$plugin"; \
-	chmod +x "$plugin"; \
-	\
-	ln -sv "$plugin" /usr/local/bin/; \
+# TODO why isn't this symlink part of the package?
+	ln -svfT /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose; \
 	docker-compose --version; \
 	docker compose version
 

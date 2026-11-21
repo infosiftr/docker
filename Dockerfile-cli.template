@@ -1,78 +1,72 @@
-{{ include "shared" -}}
-FROM alpine:3.24
+{{ def deb_package: "\(.package)=\(.version)" | @sh -}}
+{{ def upstream_version: sub("^[0-9]+:"; "") | sub("-[^-]*$"; "") | gsub("~"; "-") -}}
+FROM debian:{{ .deb.suite }}-slim
 
-RUN apk add --no-cache \
+RUN set -eux; \
+	apt-get install --update -y --no-install-recommends \
 		ca-certificates \
 # DOCKER_HOST=ssh://... -- https://github.com/docker/cli/pull/1014
 		openssh-client \
 # https://github.com/docker-library/docker/issues/482#issuecomment-2197116408
-		git
-
-# ensure that nsswitch.conf is set up for Go's "netgo" implementation (which Docker explicitly uses)
-# - https://github.com/moby/moby/blob/v24.0.6/hack/make.sh#L111
-# - https://github.com/golang/go/blob/go1.19.13/src/net/conf.go#L227-L303
-# - docker run --rm debian:stretch grep '^hosts:' /etc/nsswitch.conf
-RUN [ -e /etc/nsswitch.conf ] && grep '^hosts: files dns' /etc/nsswitch.conf
-
-# pre-add a "docker" group for socket usage
-RUN set -eux; \
-	addgroup -g 2375 -S docker
-
-ENV DOCKER_VERSION {{ .version }}
-
-RUN set -eux; \
-	\
-	{{
-		download({
-			arches: .arches,
-			urlKey: "dockerUrl",
-			sha256Key: "dockerSha256",
-			target: "docker.tgz",
-		})
-	}}; \
-	\
-	tar --extract \
-		--file docker.tgz \
-		--strip-components 1 \
-		--directory /usr/local/bin/ \
-		--no-same-owner \
-		'docker/docker' \
+# TODO "git" is intentionally omitted (for now) because on Debian it balloons the image size considerably, mostly thanks to a Perl dependency -- https://github.com/docker-library/docker/issues/306#issuecomment-2946402034
 	; \
-	rm docker.tgz; \
 	\
-	docker --version
+# https://docs.docker.com/engine/install/debian/
+	savedAptMark="$(apt-mark showmanual)"; \
+	apt-get install -y --no-install-recommends gnupg; \
+	\
+	GNUPGHOME="$(mktemp -d)"; export GNUPGHOME; \
+	mkdir -p /usr/local/share/keyrings/; \
+	gpg --batch --keyserver keyserver.ubuntu.com --recv-keys 9DC858229FC7DD38854AE2D88D81803C0EBFCD88; \
+	gpg --batch --export --armor 9DC858229FC7DD38854AE2D88D81803C0EBFCD88 > /usr/local/share/keyrings/docker.asc; \
+	gpgconf --kill all; \
+	rm -rf "$GNUPGHOME"; \
+	\
+	{ \
+		echo 'Types: deb'; \
+		echo {{ "URIs: \(.deb.url)" | @sh }}; \
+		echo {{ "Suites: \(.deb.suite)" | @sh }}; \
+		echo {{ "Components: \(.deb.component)" | @sh }}; \
+		echo 'Signed-By: /usr/local/share/keyrings/docker.asc'; \
+	} > /etc/apt/sources.list.d/docker.sources; \
+	\
+	apt-mark auto '.*' > /dev/null; \
+	apt-mark manual $savedAptMark > /dev/null; \
+	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+	apt-get dist-clean; \
+	\
+# pre-add a "docker" group for socket usage (the "docker-ce" package would create this too, but this allows us to control the GID that gets selected)
+	groupadd --gid 2375 --system docker
 {{
-	{
-		buildx: .buildx,
-		compose: .compose,
+	.deb.packages as $packages
+	| {
+		cli: $packages.cli,
+		buildx: $packages.buildx,
+		compose: $packages.compose,
 	}
 	| to_entries | map(
 		.key as $key | .value | (
 -}}
 
-ENV DOCKER_{{ $key | ascii_upcase }}_VERSION {{ .version }}
+{{ if $key == "cli" then ( -}}
+ENV DOCKER_VERSION {{ .version | upstream_version }}
+{{ ) else ( -}}
+ENV DOCKER_{{ $key | ascii_upcase }}_VERSION {{ .version | upstream_version }}
+{{ ) end -}}
 RUN set -eux; \
+	apt-get install --update -y --no-install-recommends {{ deb_package }}; \
+	apt-get dist-clean; \
 	\
-	{{
-		download({
-			arches: .arches,
-			urlKey: "url",
-			sha256Key: "sha256",
-			target: ("docker-" + $key),
-			missingArchWarning: true,
-		})
-	}}; \
-	\
-	plugin='/usr/local/libexec/docker/cli-plugins/docker-{{ $key }}'; \
-	mkdir -p "$(dirname "$plugin")"; \
-	mv -vT {{ "docker-" + $key | @sh }} "$plugin"; \
-	chmod +x "$plugin"; \
-	\
-{{ if $key == "compose" then ( -}}
-	ln -sv "$plugin" /usr/local/bin/; \
-	docker-{{ $key }} --version; \
-{{ ) else "" end -}}
+{{ if $key == "cli" then ( -}}
+	docker --version
+{{ ) elif $key == "compose" then ( -}}
+# TODO why isn't this symlink part of the package?
+	ln -svfT /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose; \
+	docker-compose --version; \
+	docker compose version
+{{ ) else ( -}}
 	docker {{ $key }} version
+{{ ) end -}}
 {{
 		)
 	)

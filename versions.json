@@ -2,32 +2,13 @@
   "29": {
     "arches": {
       "amd64": {
-        "dockerSha256": "7c1ebadc65c716cdc6d35fc78759ed0e4317debf43c21dd12f066f2006999def",
-        "dockerUrl": "https://download.docker.com/linux/static/stable/x86_64/docker-29.10.0.tgz",
-        "rootlessExtrasSha256": "a4ad65be3921ac3e45f3fe69893f5edbd078cb3b4a6499fe13288053553dce25",
-        "rootlessExtrasUrl": "https://download.docker.com/linux/static/stable/x86_64/docker-rootless-extras-29.10.0.tgz"
-      },
-      "arm32v6": {
-        "dockerSha256": "b3e626f7560728eb601687da86c27edf9b7dd71f6a0f00737baeeb607c0f1d68",
-        "dockerUrl": "https://download.docker.com/linux/static/stable/armel/docker-29.10.0.tgz"
+        "dpkgArch": "amd64"
       },
       "arm32v7": {
-        "dockerSha256": "08757af1f923c25d170211a1de8acc4e69e9cfbe7b5af63dd787afe2057efd5f",
-        "dockerUrl": "https://download.docker.com/linux/static/stable/armhf/docker-29.10.0.tgz"
+        "dpkgArch": "armhf"
       },
       "arm64v8": {
-        "dockerSha256": "6e5159e8b5615e0c0c2954a2a1a2a12bc65f5d9b603595dba24a10cb367408cd",
-        "dockerUrl": "https://download.docker.com/linux/static/stable/aarch64/docker-29.10.0.tgz",
-        "rootlessExtrasSha256": "6d08caae6a61e58f86c21dc94bcbf87f2b7a82bb634ef051243004a7f92f9e07",
-        "rootlessExtrasUrl": "https://download.docker.com/linux/static/stable/aarch64/docker-rootless-extras-29.10.0.tgz"
-      },
-      "ppc64le": {
-        "dockerSha256": "f07fe44072d1614de38effa6492f840653dfbf9e5a7d3a0a1dab4c2dad257190",
-        "dockerUrl": "https://download.docker.com/linux/static/stable/ppc64le/docker-29.10.0.tgz"
-      },
-      "s390x": {
-        "dockerSha256": "09c4a2ec475121fe9c1485c65e9f54f1fa20aa4d68d0c4b271005db3943a763b",
-        "dockerUrl": "https://download.docker.com/linux/static/stable/s390x/docker-29.10.0.tgz"
+        "dpkgArch": "arm64"
       },
       "windows-amd64": {
         "dockerSha256": "bb894f67d85155e635ce71980fb2cf587e71dad8c41cc145c42a0de5160b6561",
@@ -36,155 +17,58 @@
     },
     "buildx": {
       "arches": {
-        "amd64": {
-          "file": "buildx-v0.39.1.linux-amd64",
-          "sha256": "903090816da68f8bc1a2ff5346dd163a5adacfce4548d003c75df42cd47a9bf4",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-amd64"
-        },
-        "arm32v6": {
-          "file": "buildx-v0.39.1.linux-arm-v6",
-          "sha256": "3675402568ec1a5b96792d6bde9ebdafb9d29e9681b7ff747e97d54c2198a735",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-arm-v6"
-        },
-        "arm32v7": {
-          "file": "buildx-v0.39.1.linux-arm-v7",
-          "sha256": "e6c51234507ef11ea661a8f714412a5eb9abeba586da73dca82ad89410f03b13",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-arm-v7"
-        },
-        "arm64v8": {
-          "file": "buildx-v0.39.1.linux-arm64",
-          "sha256": "05c88e0f9152825e609a1cdb391faf14d5f94d23d071eaecb87bae69d98da8b8",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-arm64"
-        },
-        "darwin-amd64": {
-          "file": "buildx-v0.39.1.darwin-amd64",
-          "sha256": "52f6c18ba57d1d103aaaecd9c38087af124909c83aa8aa66fd6f130fc6c0619d",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.darwin-amd64"
-        },
-        "darwin-arm64v8": {
-          "file": "buildx-v0.39.1.darwin-arm64",
-          "sha256": "7a7f10602f0826d36b046e8db012b4cbfaa4ba56f9d2a5d374fe5bb7ae864fc4",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.darwin-arm64"
-        },
-        "freebsd-amd64": {
-          "file": "buildx-v0.39.1.freebsd-amd64",
-          "sha256": "26d13a39bac3a67a223c2a96cb6a929eadecfac3e6daff150d0ce22bc767e38c",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.freebsd-amd64"
-        },
-        "freebsd-arm64v8": {
-          "file": "buildx-v0.39.1.freebsd-arm64",
-          "sha256": "80136c0fc9200fbc460ecd236b76f4e647616012eb8770e5f57aaa95702a54d8",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.freebsd-arm64"
-        },
-        "netbsd-amd64": {
-          "file": "buildx-v0.39.1.netbsd-amd64",
-          "sha256": "b2b5907e8b4c902dc9df95c85857f668463fca06088e56f49dcac0df9cb3362c",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.netbsd-amd64"
-        },
-        "netbsd-arm64v8": {
-          "file": "buildx-v0.39.1.netbsd-arm64",
-          "sha256": "97af1f8a64faf5834452025ebdc07302bc0b1961ff3552d2b4ae170f3b90d55b",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.netbsd-arm64"
-        },
-        "openbsd-amd64": {
-          "file": "buildx-v0.39.1.openbsd-amd64",
-          "sha256": "378aa8d382ba764e8c2597afd6f742b9ca386c96c5a3d219e648ef67b466a894",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.openbsd-amd64"
-        },
-        "openbsd-arm64v8": {
-          "file": "buildx-v0.39.1.openbsd-arm64",
-          "sha256": "fa4c1ed66f5f21843ab23778c34101a693436be7a39a08673ad896e4c7792b9e",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.openbsd-arm64"
-        },
-        "ppc64le": {
-          "file": "buildx-v0.39.1.linux-ppc64le",
-          "sha256": "69713727c669ca87660c2197a5b97389cbad189120ee405f801986e8459ef83b",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-ppc64le"
-        },
-        "riscv64": {
-          "file": "buildx-v0.39.1.linux-riscv64",
-          "sha256": "b0af9b8cf5e8e244ea4049b4ca897c77a0b8b0d78c1b1cd7b8324d451de71ed8",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-riscv64"
-        },
-        "s390x": {
-          "file": "buildx-v0.39.1.linux-s390x",
-          "sha256": "f611aa33cd5290ad1e2ca6d5357a06123541643698d729392d05a20d527e526e",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-s390x"
-        },
         "windows-amd64": {
           "file": "buildx-v0.39.1.windows-amd64.exe",
           "sha256": "4a665d2c71f6f87a42313cb8847b8e834e2dfb1626a1b57fcdbaacf41a6c8387",
           "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.windows-amd64.exe"
-        },
-        "windows-arm64v8": {
-          "file": "buildx-v0.39.1.windows-arm64.exe",
-          "sha256": "2edf4093a6eefc56c140a00b781c332e0654591e5952d7f13a8dd8353a9a57e1",
-          "url": "https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.windows-arm64.exe"
         }
       },
       "version": "0.39.1"
     },
     "compose": {
       "arches": {
-        "amd64": {
-          "file": "docker-compose-linux-x86_64",
-          "sha256": "b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-x86_64"
-        },
-        "arm32v6": {
-          "file": "docker-compose-linux-armv6",
-          "sha256": "c88658466ae9a4dadae64e6a4ec125202212bd460934537bd482bcd5e313f57b",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-armv6"
-        },
-        "arm32v7": {
-          "file": "docker-compose-linux-armv7",
-          "sha256": "a7a79755648b975b66df08b4bfbe12b29f113d5dd8c7cd5b6b53b69efff2f422",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-armv7"
-        },
-        "arm64v8": {
-          "file": "docker-compose-linux-aarch64",
-          "sha256": "1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-aarch64"
-        },
-        "darwin-amd64": {
-          "file": "docker-compose-darwin-x86_64",
-          "sha256": "5c41cd573c549dc66abb03c5b29d6d4dfaae206b2e79848d1c32482bb2a3b416",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-darwin-x86_64"
-        },
-        "darwin-arm64v8": {
-          "file": "docker-compose-darwin-aarch64",
-          "sha256": "008b8fcf6c6d60340f5796626a0f0d51c042085793a9b1653343011727140b71",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-darwin-aarch64"
-        },
-        "ppc64le": {
-          "file": "docker-compose-linux-ppc64le",
-          "sha256": "921437ba1fe9b5f7e3146c74c4d6c56673881741561c71bc23106b1e45886b1d",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-ppc64le"
-        },
-        "riscv64": {
-          "file": "docker-compose-linux-riscv64",
-          "sha256": "0af052a262dcf3a28214c7c86442046fc5e50b698e838d1904395d7a5333b142",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-riscv64"
-        },
-        "s390x": {
-          "file": "docker-compose-linux-s390x",
-          "sha256": "444af1a82eb51edd4a2aa5b1a209724f2acd19644e488fbd8c1dc8fd7d477f97",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-s390x"
-        },
         "windows-amd64": {
           "file": "docker-compose-windows-x86_64.exe",
           "sha256": "0c2d9245a5f61e8e3cc85009b8b4888fa82fded08239d28bd6da5ca818eda2b2",
           "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-windows-x86_64.exe"
-        },
-        "windows-arm64v8": {
-          "file": "docker-compose-windows-aarch64.exe",
-          "sha256": "ec7a100a77d9aedbaa6e2b13a10140729860b58b8d2b6855d8191c52e7dd50fc",
-          "url": "https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-windows-aarch64.exe"
         }
       },
       "version": "5.8.0"
     },
-    "dindCommit": "8d9e3502aba39127e4d12196dae16d306f76993d",
+    "deb": {
+      "component": "stable",
+      "packages": {
+        "buildx": {
+          "package": "docker-buildx-plugin",
+          "version": "0.39.1-1~debian.13~trixie"
+        },
+        "cli": {
+          "package": "docker-ce-cli",
+          "version": "5:29.10.0-1~debian.13~trixie"
+        },
+        "compose": {
+          "package": "docker-compose-plugin",
+          "version": "5.8.0-1~debian.13~trixie"
+        },
+        "containerd": {
+          "package": "containerd.io",
+          "version": "2.4.2-4~debian.13~trixie"
+        },
+        "engine": {
+          "package": "docker-ce",
+          "version": "5:29.10.0-1~debian.13~trixie"
+        },
+        "rootless": {
+          "package": "docker-ce-rootless-extras",
+          "version": "5:29.10.0-1~debian.13~trixie"
+        }
+      },
+      "suite": "trixie",
+      "url": "https://download.docker.com/linux/debian"
+    },
+    "dind": {
+      "version": "8d9e3502aba39127e4d12196dae16d306f76993d"
+    },
     "variants": [
       "cli",
       "dind",

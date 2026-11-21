@@ -6,47 +6,35 @@
 
 FROM docker:29-dind
 
-# busybox "ip" is insufficient:
+# rootlesskit shells out to "ip" (iproute2) to set up its network:
 #   [rootlesskit:child ] error: executing [[ip tuntap add name tap0 mode tap] [ip link set tap0 address 02:50:00:00:00:01]]: exit status 1
 # slirp4netns is recommended as rootlesskit's net driver
 # https://github.com/rootless-containers/rootlesskit/blob/be156df0429551f5c23dc61dd07201b33076ff1d/docs/network.md#--netslirp4netns-recommended
-RUN apk add --no-cache iproute2 fuse-overlayfs slirp4netns
-
-# "/run/user/UID" will be used by default as the value of XDG_RUNTIME_DIR
-RUN mkdir /run/user && chmod 1777 /run/user
+RUN set -eux; \
+	apt-get install --update -y --no-install-recommends \
+		fuse-overlayfs \
+		iproute2 \
+		slirp4netns \
+	; \
+	apt-get dist-clean
 
 # create a default user preconfigured for running rootless dockerd
 RUN set -eux; \
-	adduser -h /home/rootless -g 'Rootless' -D -u 1000 rootless; \
-	echo 'rootless:100000:65536' >> /etc/subuid; \
-	echo 'rootless:100000:65536' >> /etc/subgid
+	useradd --uid 1000 --create-home --home-dir /home/rootless --comment 'Rootless' rootless; \
+# "useradd" allocates subuid/subgid ranges for regular users on its own (so we just verify that we got the range we expect instead of adding a duplicate)
+	grep --line-regexp --fixed-strings 'rootless:100000:65536' /etc/subuid; \
+	grep --line-regexp --fixed-strings 'rootless:100000:65536' /etc/subgid
 
 RUN set -eux; \
-	\
-	apkArch="$(apk --print-arch)"; \
-	case "$apkArch" in \
-		'x86_64') \
-			url='https://download.docker.com/linux/static/stable/x86_64/docker-rootless-extras-29.10.0.tgz'; \
-			sha256='a4ad65be3921ac3e45f3fe69893f5edbd078cb3b4a6499fe13288053553dce25'; \
-			;; \
-		'aarch64') \
-			url='https://download.docker.com/linux/static/stable/aarch64/docker-rootless-extras-29.10.0.tgz'; \
-			sha256='6d08caae6a61e58f86c21dc94bcbf87f2b7a82bb634ef051243004a7f92f9e07'; \
-			;; \
-		*) echo >&2 "error: unsupported 'rootless.tgz' architecture ($apkArch)"; exit 1 ;; \
-	esac; \
-	\
-	wget -O 'rootless.tgz' "$url"; \
-	\
-	tar --extract \
-		--file rootless.tgz \
-		--strip-components 1 \
-		--directory /usr/local/bin/ \
-		'docker-rootless-extras/rootlesskit' \
-	; \
-	rm rootless.tgz; \
+# TODO the "docker-ce-rootless-extras" package has a "Depends" on "dbus-user-session", which in turn drags in "dbus", "libpam-systemd", and a full copy of "systemd" (!!), all so we can have a statically linked "rootlesskit" binary (and none of it is used here); this deserves a much closer look from whoever maintains these packages
+	apt-get install --update -y --no-install-recommends 'docker-ce-rootless-extras=5:29.10.0-1~debian.13~trixie'; \
+	apt-get dist-clean; \
 	\
 	rootlesskit --version
+
+# "/run/user/UID" will be used by default as the value of XDG_RUNTIME_DIR
+# (this has to come after the packages above, because installing "systemd" resets the permissions on "/run/user")
+RUN mkdir -p /run/user && chmod 1777 /run/user
 
 # pre-create "/var/lib/docker" for our rootless user
 RUN set -eux; \

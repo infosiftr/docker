@@ -59,10 +59,6 @@ getArches 'docker'
 versionArches() {
 	local version="$1"; shift
 	local variant="${1:-}"
-	local selector='dockerUrl'
-	if [[ "$variant" = *rootless ]]; then
-		selector='rootlessExtrasUrl'
-	fi
 
 	if [[ "$variant" = windows/* ]]; then
 		version="$version" jq -r '
@@ -79,9 +75,9 @@ versionArches() {
 
 	comm -12 \
 		<(
-			version="$version" jq -r --arg selector "$selector" '
+			version="$version" jq -r '
 				.[env.version].arches | to_entries[]
-				| select(.value[$selector])
+				| select(.value.dpkgArch)
 				| .key
 			' versions.json | sort
 		) \
@@ -171,15 +167,16 @@ for version; do
 
 		if [ "$variant" = 'cli' ] || [ "$variant" = 'dind' ]; then
 			parent="$(awk 'toupper($1) == "FROM" { print $2 }' "$version/cli/Dockerfile")"
-			alpine="${parent#*:}" # "3.14"
+			suite="${parent#*:}" # "trixie-slim"
+			suite="${suite%-slim}" # "trixie"
 			suiteAliases=( "${variantAliases[0]}" ) # only "X.Y.Z-foo"
-			suiteAliases=( "${suiteAliases[@]/%/-alpine$alpine}" )
+			suiteAliases=( "${suiteAliases[@]/%/-$suite}" )
 			suiteAliases=( "${suiteAliases[@]//latest-/}" )
 			variantAliases+=( "${suiteAliases[@]}" )
 			if [ "$variant" = 'dind' ]; then
 				# add "latest" aliases
 				suiteAliases=( "${versionAliases[0]}" ) # only "X.Y.Z-foo"
-				suiteAliases=( "${suiteAliases[@]/%/-alpine$alpine}" )
+				suiteAliases=( "${suiteAliases[@]/%/-$suite}" )
 				suiteAliases=( "${suiteAliases[@]//latest-/}" )
 				variantAliases+=( "${versionAliases[@]}" "${suiteAliases[@]}" )
 			fi

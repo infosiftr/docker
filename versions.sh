@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# bashbrew arch to docker-release-arch
-declare -A dockerArches=(
-	['amd64']='x86_64'
-	['arm32v6']='armel'
+# https://docs.docker.com/engine/install/debian/
+debUrl='https://download.docker.com/linux/debian'
+debSuite='trixie' # this is also the suite of the "debian" image we are FROM
+
+# bashbrew arch to dpkg arch (for the architectures Docker publishes ".deb" files for)
+declare -A dpkgArches=(
+	['amd64']='amd64'
 	['arm32v7']='armhf'
-	['arm64v8']='aarch64'
-	['ppc64le']='ppc64le'
-	['riscv64']='riscv64'
+	['arm64v8']='arm64'
+	['ppc64le']='ppc64el'
 	['s390x']='s390x'
-	['windows-amd64']='x86_64'
 )
+# Docker does not publish ".deb" files for Windows, so those still come from the static binary downloads (and the "windows-amd64" release asset of each plugin)
+windowsArch='windows-amd64'
+export windowsArch
+windowsDockerArch='x86_64'
+
+# the packages we install, so we only bother parsing those out of the (huge) "Packages" files
+debPackages='[ "docker-ce", "docker-ce-cli", "docker-ce-rootless-extras", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin" ]'
 
 cd "$(dirname "$(readlink -f "$BASH_SOURCE")")"
 
@@ -38,20 +46,54 @@ _curl() {
 	exit 1
 }
 
+# prints a JSON object of "package name" -> [ versions, highest first ] for the given component ("stable" or "test") and architecture of Docker's apt repository
+_debIndex() {
+	local component="$1"; shift
+	local dpkgArch="$1"; shift
+
+	local packages
+	packages="$(_curl "$debUrl/dists/$debSuite/$component/binary-$dpkgArch/Packages.gz" | gunzip)" || return "$?"
+
+	# "Package: foo" and "Version: 1.2.3-1" lines for each stanza, filtered down to the packages we care about
+	local tsv
+	tsv="$(
+		jq <<<"$packages" --raw-input --slurp --raw-output --argjson wanted "$debPackages" '
+			split("\n\n")[]
+			| (
+				capture("(^|\n)Package: (?<package>[^\n]+)")
+				+ capture("(^|\n)Version: (?<version>[^\n]+)")
+			)?
+			| select(.package | IN($wanted[]))
+			| [ .package, .version ]
+			| @tsv
+		' \
+			| sort --field-separator=$'\t' --key=1,1 --key=2,2Vr # (a key with its own ordering flags ignores the global "--reverse", so the "r" has to be on the key)
+	)" || return "$?"
+
+	jq <<<"$tsv" --compact-output --raw-input --null-input '
+		reduce (inputs | split("\t")) as [ $package, $version ] ({}; .[$package] += [ $version ])
+	'
+}
+
+declare -A debIndexes=()
+# caches the output of "_debIndex" (it is ~10 MiB of text to download and parse, and we ask for the same ones repeatedly)
+debIndex() {
+	local component="$1"; shift
+	local dpkgArch="$1"; shift
+	local key="$component/$dpkgArch"
+	if [ -z "${debIndexes["$key"]:-}" ]; then
+		# an architecture that is not published at all (yet) is the same as an architecture with nothing in it
+		debIndexes["$key"]="$(_debIndex "$component" "$dpkgArch" || echo '{}')"
+	fi
+	echo "${debIndexes["$key"]}"
+}
+
 dindLatest="$(
 	_curl -H 'Accept: application/json' 'https://github.com/moby/moby/commits/master/hack/dind.atom' \
 		| jq -r '.payload | first(.. | .commits?[]?.oid)'
 )"
 
-dockerVersions="$(
-	git ls-remote --tags https://github.com/moby/moby.git \
-		| jq --raw-input --null-input --raw-output '
-			[ inputs | capture("refs/tags/(docker-)?v(?<version>[0-9.a-z-]+)($|\\^)") | .version ]
-			| unique_by( split(".") | map(tonumber? // .) )
-			| reverse[]
-		'
-)"
-
+# Windows does not have ".deb" files to use, so these are the standalone "windows-amd64" binaries for each plugin from their GitHub releases (and we throw the rest of the architectures away)
 buildxVersions="$(
 	git ls-remote --tags https://github.com/docker/buildx.git \
 		| jq --raw-input --null-input --raw-output '
@@ -71,7 +113,7 @@ for buildxVersion in $buildxVersions; do
 		&& checksums+=$'\n' \
 		&& checksums+="$(_curl "https://github.com/docker/buildx/releases/download/v${buildxVersion}/checksums-signed.txt")" \
 	; then
-		buildx="$(jq <<<"$checksums" -csR --arg version "$buildxVersion" '
+		buildx="$(jq <<<"$checksums" -csR --arg version "$buildxVersion" --arg arch "$windowsArch" '
 			rtrimstr("\n") | split("\n")
 			| map(
 				split(" [ *]?"; "")
@@ -80,22 +122,8 @@ for buildxVersion in $buildxVersions; do
 					file: .[1],
 					url: ("https://github.com/docker/buildx/releases/download/v" + $version + "/" + .[1]),
 				}
-				| select(.file | test("[.]json$") | not)
-				| { (
-					.file
-					| capture("[.](?<os>linux|windows|darwin|[a-z0-9]*bsd)-(?<arch>[^.]+)(?<ext>[.]exe)?$")
-					// error("failed to parse os-arch from filename: " + .)
-					| if .os == "linux" then "" else .os + "-" end
-					+ ({
-						"amd64": "amd64",
-						"arm-v6": "arm32v6",
-						"arm-v7": "arm32v7",
-						"arm64": "arm64v8",
-						"ppc64le": "ppc64le",
-						"riscv64": "riscv64",
-						"s390x": "s390x",
-					}[.arch] // error("unknown buildx architecture: " + .arch))
-				): . }
+				| select(.file | test("[.]windows-amd64[.]exe$"))
+				| { ($arch): . }
 			)
 			| add
 			| {
@@ -106,7 +134,7 @@ for buildxVersion in $buildxVersions; do
 		break
 	fi
 done
-if [ -z "$buildx" ]; then
+if [ -z "$buildx" ] || ! jq <<<"$buildx" -e '.arches[env.windowsArch]' > /dev/null; then
 	echo >&2 'error: failed to determine buildx version!'
 	exit 1
 fi
@@ -123,7 +151,7 @@ compose=
 composeVersion=
 for composeVersion in $composeVersions; do
 	if checksums="$(_curl "https://github.com/docker/compose/releases/download/v${composeVersion}/checksums.txt")"; then
-		compose="$(jq <<<"$checksums" -csR --arg version "$composeVersion" '
+		compose="$(jq <<<"$checksums" -csR --arg version "$composeVersion" --arg arch "$windowsArch" '
 			rtrimstr("\n") | split("\n")
 			| map(
 				split(" *")
@@ -132,22 +160,8 @@ for composeVersion in $composeVersions; do
 					file: .[1],
 					url: ("https://github.com/docker/compose/releases/download/v" + $version + "/" + .[1]),
 				}
-				| select(.file | test("[.]json$") | not)
-				| { (
-					.file
-					| capture("-(?<os>linux|windows|darwin|freebsd|openbsd)-(?<arch>[^.]+)(?<ext>[.]exe)?$")
-					// error("failed to parse os-arch from filename: " + .)
-					| if .os == "linux" then "" else .os + "-" end
-					+ ({
-						aarch64: "arm64v8",
-						armv6: "arm32v6",
-						armv7: "arm32v7",
-						ppc64le: "ppc64le",
-						riscv64: "riscv64",
-						s390x: "s390x",
-						x86_64: "amd64",
-					}[.arch] // error("unknown compose architecture: " + .arch))
-				): . }
+				| select(.file | test("-windows-x86_64[.]exe$"))
+				| { ($arch): . }
 			)
 			| add
 			| {
@@ -158,7 +172,7 @@ for composeVersion in $composeVersions; do
 		break
 	fi
 done
-if [ -z "$compose" ]; then
+if [ -z "$compose" ] || ! jq <<<"$compose" -e '.arches[env.windowsArch]' > /dev/null; then
 	echo >&2 'error: failed to determine compose version!'
 	exit 1
 fi
@@ -166,17 +180,43 @@ fi
 for version in "${versions[@]}"; do
 	rcVersion="${version%-rc}"
 	export version rcVersion
-	channel='stable'
-
-	versionOptions="$(grep "^$rcVersion[.]" <<<"$dockerVersions")"
-
-	rcGrepV='-v'
+	channel='stable' # this is also the name of the component in Docker's apt repository
+	rc='false'
 	if [ "$rcVersion" != "$version" ]; then
-		rcGrepV=
 		channel='test'
+		rc='true'
 	fi
 
-	if ! fullVersion="$(grep $rcGrepV -E -- '-(rc|tp|beta)' <<<"$versionOptions" | head -1)" || [ -z "$fullVersion" ]; then
+	# the highest version of "docker-ce" (and thus "docker-ce-cli" and "docker-ce-rootless-extras") in this channel for this release series (RCs and GA releases are separate here, just like the "-rc" entries in "versions.json")
+	deb="$(
+		debIndex "$channel" amd64 \
+			| jq --compact-output --arg url "$debUrl" --arg suite "$debSuite" --arg component "$channel" --arg rcVersion "$rcVersion" --argjson rc "$rc" '
+				def upstream_version: sub("^[0-9]+:"; "") | sub("-[^-]*$"; "");
+				first(
+					.["docker-ce"][]?
+					| select(
+						upstream_version
+						| startswith($rcVersion + ".")
+						and (contains("~") == $rc)
+					)
+				) as $engine
+				| {
+					url: $url,
+					suite: $suite,
+					component: $component,
+					packages: {
+						engine: { package: "docker-ce", version: $engine },
+						cli: { package: "docker-ce-cli", version: $engine },
+						containerd: { package: "containerd.io", version: .["containerd.io"][0] },
+						buildx: { package: "docker-buildx-plugin", version: .["docker-buildx-plugin"][0] },
+						compose: { package: "docker-compose-plugin", version: .["docker-compose-plugin"][0] },
+						rootless: { package: "docker-ce-rootless-extras", version: $engine },
+					},
+				}
+			'
+	)"
+
+	if [ -z "$deb" ]; then
 		if currentNull="$(jq -r '.[env.version] == null' versions.json)" && [ "$currentNull" = 'true' ]; then
 			echo >&2 "warning: skipping '$version' (does not appear to be released yet)"
 			json="$(jq <<<"$json" -c '.[env.version] = null')"
@@ -185,6 +225,9 @@ for version in "${versions[@]}"; do
 		echo >&2 "error: cannot find full version for $version"
 		exit 1
 	fi
+
+	# "5:29.10.0~rc.1-1~debian.13~trixie" -> "29.10.0-rc.1"
+	fullVersion="$(jq <<<"$deb" --raw-output '.packages.engine.version | sub("^[0-9]+:"; "") | sub("-[^-]*$"; "") | gsub("~"; "-")')"
 
 	# if this is a "-rc" release, let's make sure the release it contains isn't already GA (and thus something we should not publish anymore)
 	if [ "$rcVersion" != "$version" ] && rcFullVersion="$(jq <<<"$json" -r '.[env.rcVersion].version // ""')" && [ -n "$rcFullVersion" ]; then
@@ -197,84 +240,71 @@ for version in "${versions[@]}"; do
 		fi
 	fi
 
-	echo "$version: $fullVersion (buildx $buildxVersion, compose $composeVersion)"
+	jq <<<"$deb" --raw-output --arg fullVersion "$fullVersion" '
+		.packages
+		| "\(env.version): \($fullVersion) (containerd \(.containerd.version), buildx \(.buildx.version), compose \(.compose.version))"
+	'
 
 	export fullVersion dindLatest
 	doc="$(
-		jq -nc --argjson buildx "$buildx" --argjson compose "$compose" '{
+		jq -nc --argjson deb "$deb" --argjson buildx "$buildx" --argjson compose "$compose" '{
 			version: env.fullVersion,
 			arches: {},
-			dindCommit: env.dindLatest,
+			dind: { version: env.dindLatest },
+			deb: $deb,
 			buildx: $buildx,
 			compose: $compose,
 		}'
 	)"
 
 	declare -A hasArches=()
-	for bashbrewArch in "${!dockerArches[@]}"; do
-		arch="${dockerArches[$bashbrewArch]}"
-		# check whether the given architecture is supported for this release
-		case "$bashbrewArch" in
-			windows-*) url="https://download.docker.com/win/static/$channel/$arch/docker-$fullVersion.zip"; windows=1 ;;
-			*) url="https://download.docker.com/linux/static/$channel/$arch/docker-$fullVersion.tgz"; windows= ;;
-		esac
-		if _curl --head "$url" > /dev/null; then
-			export bashbrewArch url
-			doc="$(
-				jq <<<"$doc" -c '.arches[env.bashbrewArch] = {
-					dockerUrl: env.url,
-				}'
-			)"
-		else
+	packages="$(jq <<<"$deb" -c '.packages')"
+	for bashbrewArch in "${!dpkgArches[@]}"; do
+		dpkgArch="${dpkgArches["$bashbrewArch"]}"
+
+		# not every architecture is updated in lockstep, so we only publish the architectures that have *everything* we need at the exact versions we chose (and the rest will come back on their own once they catch up)
+		if ! debIndex "$channel" "$dpkgArch" | jq --exit-status --argjson packages "$packages" '
+			. as $index
+			| $packages
+			| all(.[]; . as $p | any($index[$p.package][]?; . == $p.version))
+		' > /dev/null; then
+			echo >&2 "warning: skipping '$bashbrewArch' for '$version' (missing at least one of the expected packages)"
 			continue
 		fi
+
+		export bashbrewArch dpkgArch
+		doc="$(
+			jq <<<"$doc" -c '.arches[env.bashbrewArch] = {
+				dpkgArch: env.dpkgArch,
+			}'
+		)"
+		hasArches["$bashbrewArch"]=1
+	done
+
+	# check whether Windows is supported for this release
+	url="https://download.docker.com/win/static/$channel/$windowsDockerArch/docker-$fullVersion.zip"
+	if _curl --head "$url" > /dev/null; then
 		if sha256="$(_curl "$url.sha256")"; then
 			sha256="${sha256%% *}"
 			if [[ ! "$sha256" =~ ^[[:xdigit:]]{64}$ ]]; then
 				echo >&2 "error: invalid checksum for $url: '$sha256'"
 				exit 1
 			fi
-
-			export sha256
-			doc="$(jq <<<"$doc" -c '
-				.arches[env.bashbrewArch].dockerSha256 = env.sha256
-			')"
-		fi
-		hasArches["$bashbrewArch"]=1
-
-		if [ -n "$windows" ]; then
-			continue # Windows doesn't have rootless extras :)
+		else
+			sha256=
 		fi
 
-		# https://github.com/moby/moby/blob/v20.10.7/hack/make/binary-daemon#L24
-		# "vpnkit is available for x86_64 and aarch64"
-		case "$bashbrewArch" in
-			amd64 | arm64v8)
-				rootlessExtrasUrl="https://download.docker.com/linux/static/$channel/$arch/docker-rootless-extras-$fullVersion.tgz"
-				if _curl --head "$rootlessExtrasUrl" > /dev/null; then
-					if rootlessExtrasSha256="$(_curl "$rootlessExtrasUrl.sha256")"; then
-						rootlessExtrasSha256="${rootlessExtrasSha256%% *}"
-						if [[ ! "$rootlessExtrasSha256" =~ ^[[:xdigit:]]{64}$ ]]; then
-							echo >&2 "error: invalid checksum for $rootlessExtrasUrl: '$rootlessExtrasSha256'"
-							exit 1
-						fi
-					else
-						rootlessExtrasSha256=
-					fi
-
-					export rootlessExtrasUrl rootlessExtrasSha256
-					doc="$(jq <<<"$doc" -c '
-						.arches[env.bashbrewArch] |= (
-							.rootlessExtrasUrl = env.rootlessExtrasUrl
-							| if env.rootlessExtrasSha256 != "" then
-								.rootlessExtrasSha256 = env.rootlessExtrasSha256
-							end
-						)
-					')"
-				fi
-				;;
-		esac
-	done
+		export url sha256
+		doc="$(
+			jq <<<"$doc" -c '
+				.arches[env.windowsArch] = { dockerUrl: env.url }
+				| if env.sha256 != "" then
+					.arches[env.windowsArch].dockerSha256 = env.sha256
+				end
+			'
+		)"
+		hasArches["$windowsArch"]=1
+	fi
 
 	for alwaysExpectedArch in amd64 arm64v8; do
 		if [ -z "${hasArches["$alwaysExpectedArch"]:-}" ]; then
@@ -292,7 +322,7 @@ for version in "${versions[@]}"; do
 		windows/windowsservercore-ltsc2022 \
 	; do
 		base="${variant%%/*}" # "buster", "windows", etc.
-		if [ "$base" = 'windows' ] && [ -z "${hasArches['windows-amd64']}" ]; then
+		if [ "$base" = 'windows' ] && [ -z "${hasArches["$windowsArch"]:-}" ]; then
 			continue
 		fi
 		export variant
